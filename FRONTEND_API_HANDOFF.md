@@ -587,6 +587,58 @@ Frontend guidance:
 1. wire the page to real data now
 2. if the UI has rapid/blitz/bullet tabs, either keep them client-side for now or map all tabs to the same endpoint until backend filtering is added
 
+### `GET /api/leaderboard/fide`
+
+Public.
+
+This is a separate leaderboard backed by imported official FIDE list data.
+
+Optional query params:
+
+- `query`
+- `timeControl` = `standard` | `rapid` | `blitz`
+- `country` = federation code like `IND`
+- `gender` = `open` | `male` | `female`
+- `division` = `open` | `junior` | `senior`
+- `page`
+- `size`
+- `activeOnly`
+
+Example:
+
+`GET /api/leaderboard/fide?timeControl=rapid&country=IND&gender=female&division=junior`
+
+Response:
+
+```json
+{
+  "timeControl": "rapid",
+  "gender": "female",
+  "division": "junior",
+  "country": "IND",
+  "query": null,
+  "page": 0,
+  "size": 50,
+  "totalEntries": 1,
+  "lastSyncedAt": "2026-04-10T10:00:00Z",
+  "entries": [
+    {
+      "rank": 1,
+      "fideId": 35009192,
+      "name": "Divya Deshmukh",
+      "title": "IM",
+      "country": "IND",
+      "gender": "F",
+      "birthYear": 2005,
+      "timeControl": "rapid",
+      "rating": 2395,
+      "gamesPlayed": 11,
+      "inactive": false
+    }
+  ]
+}
+```
+
 ## Analysis APIs
 
 ### `POST /api/analysis/pgn`

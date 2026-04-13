@@ -4,6 +4,7 @@ import com.chess.demo.dto.game.CreateGameRequest;
 import com.chess.demo.dto.game.DrawResponseRequest;
 import com.chess.demo.dto.game.GameResponse;
 import com.chess.demo.dto.game.MoveRequest;
+import com.chess.demo.dto.analysis.GameAnalysisResponse;
 import com.chess.demo.service.CurrentUserService;
 import com.chess.demo.service.GameService;
 import jakarta.validation.Valid;
@@ -74,5 +75,10 @@ public class GameController {
     @GetMapping("/{gameId}/fen")
     public ResponseEntity<Map<String, String>> getFen(@PathVariable UUID gameId, Principal principal) {
         return ResponseEntity.ok(Map.of("fen", gameService.getFen(gameId, currentUserService.requireUser(principal))));
+    }
+
+    @GetMapping("/{gameId}/analysis")
+    public ResponseEntity<GameAnalysisResponse> analyzeGame(@PathVariable UUID gameId, Principal principal) {
+        return ResponseEntity.ok(gameService.analyzeGame(gameId, currentUserService.requireUser(principal)));
     }
 }

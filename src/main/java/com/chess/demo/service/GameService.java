@@ -4,6 +4,7 @@ import com.chess.demo.common.ApiException;
 import com.chess.demo.dto.game.CreateGameRequest;
 import com.chess.demo.dto.game.GameResponse;
 import com.chess.demo.dto.game.MoveRequest;
+import com.chess.demo.dto.analysis.GameAnalysisResponse;
 import com.chess.demo.entity.Game;
 import com.chess.demo.entity.GameMove;
 import com.chess.demo.entity.User;
@@ -31,19 +32,22 @@ public class GameService {
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
     private final ChessEngineService chessEngineService;
+    private final PostGameAnalysisService postGameAnalysisService;
 
     public GameService(GameRepository gameRepository,
                        GameMoveRepository gameMoveRepository,
                        UserMapper userMapper,
                        ObjectMapper objectMapper,
                        SimpMessagingTemplate messagingTemplate,
-                       ChessEngineService chessEngineService) {
+                       ChessEngineService chessEngineService,
+                       PostGameAnalysisService postGameAnalysisService) {
         this.gameRepository = gameRepository;
         this.gameMoveRepository = gameMoveRepository;
         this.userMapper = userMapper;
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
         this.chessEngineService = chessEngineService;
+        this.postGameAnalysisService = postGameAnalysisService;
     }
 
     @Transactional
@@ -187,6 +191,13 @@ public class GameService {
         Game game = getGameEntity(gameId);
         ensureParticipant(game, user);
         return game.getFen();
+    }
+
+    @Transactional(readOnly = true)
+    public GameAnalysisResponse analyzeGame(UUID gameId, User user) {
+        Game game = getGameEntity(gameId);
+        ensureParticipant(game, user);
+        return postGameAnalysisService.analyzeGame(game, user, gameMoveRepository.findByGameOrderByMoveNumberAsc(game));
     }
 
     @Transactional(readOnly = true)

@@ -75,6 +75,43 @@ CREATE TABLE IF NOT EXISTS game_chat_messages (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS game_analyses (
+    id UUID PRIMARY KEY,
+    game_id UUID NOT NULL UNIQUE REFERENCES games(id),
+    game_status VARCHAR(20) NOT NULL,
+    game_result VARCHAR(20),
+    overall_accuracy DOUBLE PRECISION,
+    white_player_id UUID REFERENCES users(id),
+    white_accuracy DOUBLE PRECISION,
+    white_current_rating INTEGER,
+    white_provisional_rating INTEGER,
+    white_rating_delta INTEGER,
+    white_moves_analyzed INTEGER,
+    black_player_id UUID REFERENCES users(id),
+    black_accuracy DOUBLE PRECISION,
+    black_current_rating INTEGER,
+    black_provisional_rating INTEGER,
+    black_rating_delta INTEGER,
+    black_moves_analyzed INTEGER,
+    source_game_updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    source_move_count INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS game_analysis_moves (
+    id UUID PRIMARY KEY,
+    analysis_id UUID NOT NULL REFERENCES game_analyses(id),
+    player_id UUID REFERENCES users(id),
+    move_number INTEGER NOT NULL,
+    move_color VARCHAR(5) NOT NULL,
+    uci_move VARCHAR(5) NOT NULL,
+    best_move VARCHAR(5),
+    evaluation_after DOUBLE PRECISION,
+    classification VARCHAR(20) NOT NULL,
+    accuracy DOUBLE PRECISION NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS achievements (
     id UUID PRIMARY KEY,
     name VARCHAR(80) NOT NULL UNIQUE,
@@ -88,3 +125,30 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     earned BOOLEAN NOT NULL DEFAULT TRUE,
     earned_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS fide_players (
+    fide_id INTEGER PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    title VARCHAR(20),
+    federation VARCHAR(4),
+    sex VARCHAR(1),
+    birth_year INTEGER,
+    standard_rating INTEGER,
+    rapid_rating INTEGER,
+    blitz_rating INTEGER,
+    standard_games INTEGER,
+    rapid_games INTEGER,
+    blitz_games INTEGER,
+    standard_k INTEGER,
+    rapid_k INTEGER,
+    blitz_k INTEGER,
+    standard_inactive BOOLEAN NOT NULL DEFAULT FALSE,
+    rapid_inactive BOOLEAN NOT NULL DEFAULT FALSE,
+    blitz_inactive BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_fide_players_standard_rating ON fide_players (standard_rating DESC);
+CREATE INDEX IF NOT EXISTS idx_fide_players_rapid_rating ON fide_players (rapid_rating DESC);
+CREATE INDEX IF NOT EXISTS idx_fide_players_blitz_rating ON fide_players (blitz_rating DESC);
+CREATE INDEX IF NOT EXISTS idx_fide_players_federation ON fide_players (federation);

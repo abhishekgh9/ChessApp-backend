@@ -174,29 +174,6 @@ public class AnalysisService {
                                 ChessEngineService.AnalysisInfo afterMove,
                                 String playedMove,
                                 Side moverSide) {
-        if (playedMove.equalsIgnoreCase(beforeMove.bestMove())) {
-            return "best";
-        }
-        if (beforeMove.evaluation() == null || afterMove.evaluation() == null) {
-            return "good";
-        }
-
-        double loss = moverSide == Side.WHITE
-                ? beforeMove.evaluation() - afterMove.evaluation()
-                : afterMove.evaluation() - beforeMove.evaluation();
-
-        if (loss <= 0.20) {
-            return "excellent";
-        }
-        if (loss <= 0.50) {
-            return "good";
-        }
-        if (loss <= 1.00) {
-            return "inaccuracy";
-        }
-        if (loss <= 2.00) {
-            return "mistake";
-        }
-        return "blunder";
+        return AnalysisScoring.classifyMove(beforeMove, afterMove, playedMove, moverSide);
     }
 }

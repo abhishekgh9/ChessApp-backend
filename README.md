@@ -146,11 +146,15 @@ Top-level layout (trimmed):
 - `/api/analysis`
 	- analyze by PGN and FEN
 - `/api/leaderboard`
-	- leaderboard query
+	- local app leaderboard query
+- `/api/leaderboard/fide`
+	- public FIDE leaderboard query with time-control and federation filters
 - `/api/profile`
 	- own profile (protected) and public profile views
 - `/api/matchmaking`
 	- join, cancel, and status
+- `/api/internal/fide/sync`
+	- authenticated manual FIDE import trigger
 
 ### WebSocket / STOMP
 
@@ -220,6 +224,13 @@ Key environment-backed properties:
 | `JWT_EXPIRATION_MS` | Token lifetime in ms | `3600000` |
 | `BOT_STOCKFISH_PATH` | Stockfish executable path | `stockfish` |
 | `BOT_STOCKFISH_TIMEOUT_MS` | Engine timeout | `5000` |
+| `FIDE_COMBINED_SOURCE` | XML or ZIP resource/URL for combined FIDE list | official latest ZIP |
+| `FIDE_STANDARD_SOURCE` | XML or ZIP resource/URL for standard list | unset |
+| `FIDE_RAPID_SOURCE` | XML or ZIP resource/URL for rapid list | unset |
+| `FIDE_BLITZ_SOURCE` | XML or ZIP resource/URL for blitz list | unset |
+| `FIDE_SYNC_ON_STARTUP` | Import real FIDE data on boot only when table is empty | `true` |
+| `FIDE_REFRESH_ENABLED` | Enable scheduled monthly FIDE refresh | `true` |
+| `FIDE_REFRESH_CRON` | UTC cron for scheduled FIDE refresh | `0 0 6 10 * *` |
 
 Recommended practice: keep all environment-specific values in deployment secret stores or environment configuration, never in source control.
 
@@ -274,8 +285,44 @@ Core tables include:
 - `games`
 - `game_moves`
 - `game_chat_messages`
+- `fide_players`
 - `achievements`
 - `user_achievements`
+
+### FIDE Leaderboard Import
+
+The backend can now maintain a separate FIDE-backed leaderboard table.
+
+- Public read endpoint: `GET /api/leaderboard/fide`
+- Supported query params: `query`, `timeControl`, `country`, `gender`, `division`, `page`, `size`, `activeOnly`
+- Supported `timeControl` values: `standard`, `rapid`, `blitz`
+- Supported `gender` values: `open`, `male`, `female`
+- Supported `division` values: `open`, `junior`, `senior`
+
+To load official monthly lists, set one or more of:
+
+```powershell
+setx FIDE_COMBINED_SOURCE "https://ratings.fide.com/download/players_list_xml.zip"
+setx FIDE_STANDARD_SOURCE "https://..."
+setx FIDE_RAPID_SOURCE "https://..."
+setx FIDE_BLITZ_SOURCE "https://..."
+setx FIDE_SYNC_ON_STARTUP "true"
+```
+
+The importer accepts XML resources directly and ZIP files containing XML. By default it uses the official combined latest FIDE XML ZIP, which includes standard, rapid, and blitz ratings in one source.
+
+Sync behavior:
+
+- on startup, import runs only if the `fide_players` table is empty
+- after that, a scheduled monthly refresh runs by default on the 10th day of each month at `06:00 UTC`
+- manual sync remains available through the internal endpoint
+
+Manual sync is also available after login:
+
+```powershell
+curl -X POST "http://localhost:8081/api/internal/fide/sync?timeControl=all" ^
+  -H "Authorization: Bearer <token>"
+```
 
 For Supabase, run SQL scripts in the SQL editor for your target project.
 
@@ -331,7 +378,7 @@ Current implementation caveats:
 2. FEN and PGN representations during live play can be placeholder-quality.
 3. Matchmaking is currently in-memory and not horizontally scalable.
 4. WebSocket topic payloads can contain mixed message shapes without a formal event envelope.
-5. Leaderboard filtering behavior is currently basic.
+5. The local app leaderboard remains basic; the separate FIDE leaderboard depends on imported official list data.
 
 These limitations are suitable for active development but should be addressed for full production hardening.
 
