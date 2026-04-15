@@ -148,7 +148,63 @@ CREATE TABLE IF NOT EXISTS fide_players (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS puzzles (
+    id UUID PRIMARY KEY,
+    slug VARCHAR(120) NOT NULL UNIQUE,
+    title VARCHAR(120) NOT NULL,
+    description VARCHAR(500),
+    fen VARCHAR(255) NOT NULL,
+    difficulty VARCHAR(20) NOT NULL,
+    primary_theme VARCHAR(40) NOT NULL,
+    max_wrong_attempts INTEGER NOT NULL DEFAULT 2,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS puzzle_solution_steps (
+    id UUID PRIMARY KEY,
+    puzzle_id UUID NOT NULL REFERENCES puzzles(id),
+    step_number INTEGER NOT NULL,
+    move_uci VARCHAR(5) NOT NULL,
+    move_san VARCHAR(30),
+    side_to_move VARCHAR(5) NOT NULL,
+    is_opponent_move BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT puzzle_solution_steps_unique_step UNIQUE (puzzle_id, step_number)
+);
+
+CREATE TABLE IF NOT EXISTS puzzle_tags (
+    id UUID PRIMARY KEY,
+    name VARCHAR(40) NOT NULL UNIQUE,
+    slug VARCHAR(40) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS puzzle_tag_links (
+    puzzle_id UUID NOT NULL REFERENCES puzzles(id),
+    tag_id UUID NOT NULL REFERENCES puzzle_tags(id),
+    PRIMARY KEY (puzzle_id, tag_id)
+);
+
+CREATE TABLE IF NOT EXISTS puzzle_attempts (
+    id UUID PRIMARY KEY,
+    puzzle_id UUID NOT NULL REFERENCES puzzles(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    attempt_number INTEGER NOT NULL,
+    solution_step_number INTEGER NOT NULL,
+    submitted_move_uci VARCHAR(5) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    time_spent_seconds INTEGER NOT NULL DEFAULT 0,
+    hints_used INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_fide_players_standard_rating ON fide_players (standard_rating DESC);
 CREATE INDEX IF NOT EXISTS idx_fide_players_rapid_rating ON fide_players (rapid_rating DESC);
 CREATE INDEX IF NOT EXISTS idx_fide_players_blitz_rating ON fide_players (blitz_rating DESC);
 CREATE INDEX IF NOT EXISTS idx_fide_players_federation ON fide_players (federation);
+CREATE INDEX IF NOT EXISTS idx_puzzles_difficulty_theme ON puzzles (difficulty, primary_theme);
+CREATE INDEX IF NOT EXISTS idx_puzzles_active_created_at ON puzzles (active, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_puzzle_solution_steps_puzzle_step ON puzzle_solution_steps (puzzle_id, step_number);
+CREATE INDEX IF NOT EXISTS idx_puzzle_attempts_user_created_at ON puzzle_attempts (user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_puzzle_attempts_puzzle_user ON puzzle_attempts (puzzle_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_puzzle_attempts_status ON puzzle_attempts (status);

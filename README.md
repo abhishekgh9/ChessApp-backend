@@ -145,6 +145,8 @@ Top-level layout (trimmed):
 	- create bot game
 - `/api/analysis`
 	- analyze by PGN and FEN
+- `/api/puzzles`
+	- public listing, detail, daily puzzle, authenticated attempts, and progress summary
 - `/api/leaderboard`
 	- local app leaderboard query
 - `/api/leaderboard/fide`
@@ -186,10 +188,15 @@ Subscribe destination:
 	- `/api/profile/*`
 	- `/api/profile/*/games`
 	- `/api/profile/*/achievements`
-	- `/api/analysis/**`
+- `/api/analysis/**`
+- `/api/puzzles`
+- `/api/puzzles/daily`
+- `/api/puzzles/{id}`
 	- `/ws-chess/**`
 - Protected:
 	- `/api/profile/me`
+	- `/api/puzzles/{id}/attempts`
+	- `/api/puzzles/me/progress`
 	- all other non-public endpoints
 
 ### CORS and Session
@@ -285,9 +292,108 @@ Core tables include:
 - `games`
 - `game_moves`
 - `game_chat_messages`
+- `puzzles`
+- `puzzle_solution_steps`
+- `puzzle_tags`
+- `puzzle_attempts`
 - `fide_players`
 - `achievements`
 - `user_achievements`
+
+### Puzzle Seed Data
+
+The Supabase seed script now includes a puzzle catalog for local/demo environments:
+
+- `database/supabase-seed.sql` inserts 20 sample puzzles across `easy`, `medium`, and `hard`
+- tag metadata is included for `mate`, `back-rank`, `fork`, `endgame`, `promotion`, `queen`, `rook`, and `knight`
+- puzzle attempts are not pre-seeded, so user progress starts clean
+
+If you want puzzle demo data in a fresh environment, run `database/supabase-init.sql` followed by `database/supabase-seed.sql`.
+
+### Puzzle API
+
+Public endpoints:
+
+- `GET /api/puzzles?difficulty=&theme=&page=&size=`
+- `GET /api/puzzles/daily`
+- `GET /api/puzzles/{id}`
+
+Authenticated endpoints:
+
+- `POST /api/puzzles/{id}/attempts`
+- `GET /api/puzzles/me/progress`
+
+Example list request:
+
+```powershell
+curl "http://localhost:8081/api/puzzles?difficulty=easy&theme=mate&page=0&size=10"
+```
+
+Example list response:
+
+```json
+{
+  "items": [
+    {
+      "id": "93000000-0000-0000-0000-000000000001",
+      "title": "Queen Lift to d8",
+      "description": "White finishes with a direct queen lift.",
+      "fen": "6k1/6pp/8/3Q4/8/8/8/6K1 w - - 0 1",
+      "difficulty": "easy",
+      "primaryTheme": "mate",
+      "tags": ["mate", "queen"],
+      "maxWrongAttempts": 2,
+      "totalSolutionSteps": 1
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "totalElements": 20,
+  "totalPages": 2
+}
+```
+
+Example attempt request:
+
+```powershell
+curl -X POST "http://localhost:8081/api/puzzles/93000000-0000-0000-0000-000000000001/attempts" ^
+  -H "Authorization: Bearer <token>" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"move\":\"d5d8\",\"timeSpentSeconds\":7,\"hintsUsed\":0}"
+```
+
+Example attempt response:
+
+```json
+{
+  "attemptId": "f2f5b754-3aa8-4690-8f7b-8f4896d4d54b",
+  "puzzleId": "93000000-0000-0000-0000-000000000001",
+  "status": "completed",
+  "correct": true,
+  "completed": true,
+  "failed": false,
+  "attemptCount": 1,
+  "remainingAttempts": 2,
+  "solvedSteps": 1,
+  "totalSteps": 1,
+  "awardedScore": 100,
+  "currentStreak": 1,
+  "fen": "3Q2k1/6pp/8/8/8/8/8/6K1 b - - 1 1",
+  "message": "Puzzle solved."
+}
+```
+
+Example progress response:
+
+```json
+{
+  "attemptedCount": 8,
+  "solvedCount": 5,
+  "successRate": 62.5,
+  "currentStreak": 2,
+  "bestStreak": 4
+}
+```
 
 ### FIDE Leaderboard Import
 
@@ -379,6 +485,8 @@ Current implementation caveats:
 3. Matchmaking is currently in-memory and not horizontally scalable.
 4. WebSocket topic payloads can contain mixed message shapes without a formal event envelope.
 5. The local app leaderboard remains basic; the separate FIDE leaderboard depends on imported official list data.
+6. Puzzle scoring and streaks are intentionally simple for the MVP: they track solve/fail outcomes, first-try bonuses, and hint penalties but do not yet use rating-based difficulty.
+7. Puzzle solution authoring supports multi-step lines, but the current seed catalog is mostly single-step tactics.
 
 These limitations are suitable for active development but should be addressed for full production hardening.
 

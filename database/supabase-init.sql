@@ -95,6 +95,56 @@ create table if not exists public.user_achievements (
     constraint user_achievements_user_achievement_unique unique (user_id, achievement_id)
 );
 
+create table if not exists public.puzzles (
+    id uuid primary key default gen_random_uuid(),
+    slug varchar(120) not null unique,
+    title varchar(120) not null,
+    description varchar(500),
+    fen varchar(255) not null,
+    difficulty varchar(20) not null,
+    primary_theme varchar(40) not null,
+    max_wrong_attempts integer not null default 2,
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create table if not exists public.puzzle_solution_steps (
+    id uuid primary key default gen_random_uuid(),
+    puzzle_id uuid not null references public.puzzles(id) on delete cascade,
+    step_number integer not null,
+    move_uci varchar(5) not null,
+    move_san varchar(30),
+    side_to_move varchar(5) not null,
+    is_opponent_move boolean not null default false,
+    constraint puzzle_solution_steps_unique_step unique (puzzle_id, step_number)
+);
+
+create table if not exists public.puzzle_tags (
+    id uuid primary key default gen_random_uuid(),
+    name varchar(40) not null unique,
+    slug varchar(40) not null unique
+);
+
+create table if not exists public.puzzle_tag_links (
+    puzzle_id uuid not null references public.puzzles(id) on delete cascade,
+    tag_id uuid not null references public.puzzle_tags(id) on delete cascade,
+    primary key (puzzle_id, tag_id)
+);
+
+create table if not exists public.puzzle_attempts (
+    id uuid primary key default gen_random_uuid(),
+    puzzle_id uuid not null references public.puzzles(id) on delete cascade,
+    user_id uuid not null references public.users(id) on delete cascade,
+    attempt_number integer not null,
+    solution_step_number integer not null,
+    submitted_move_uci varchar(5) not null,
+    status varchar(20) not null,
+    time_spent_seconds integer not null default 0,
+    hints_used integer not null default 0,
+    created_at timestamptz not null default now()
+);
+
 create index if not exists idx_users_rating on public.users (rating desc);
 create index if not exists idx_games_white_player on public.games (white_player_id);
 create index if not exists idx_games_black_player on public.games (black_player_id);
@@ -103,6 +153,12 @@ create index if not exists idx_games_updated_at on public.games (updated_at desc
 create index if not exists idx_game_moves_game_move_number on public.game_moves (game_id, move_number);
 create index if not exists idx_game_chat_messages_game_created_at on public.game_chat_messages (game_id, created_at);
 create index if not exists idx_user_achievements_user on public.user_achievements (user_id);
+create index if not exists idx_puzzles_difficulty_theme on public.puzzles (difficulty, primary_theme);
+create index if not exists idx_puzzles_active_created_at on public.puzzles (active, created_at, id);
+create index if not exists idx_puzzle_solution_steps_puzzle_step on public.puzzle_solution_steps (puzzle_id, step_number);
+create index if not exists idx_puzzle_attempts_user_created_at on public.puzzle_attempts (user_id, created_at);
+create index if not exists idx_puzzle_attempts_puzzle_user on public.puzzle_attempts (puzzle_id, user_id);
+create index if not exists idx_puzzle_attempts_status on public.puzzle_attempts (status);
 
 comment on table public.users is 'Application users for ChessMaster Pro.';
 comment on table public.user_settings is 'Per-user frontend settings persisted by the backend.';
@@ -111,3 +167,7 @@ comment on table public.game_moves is 'Sequential move history for each game.';
 comment on table public.game_chat_messages is 'Persisted in-game chat messages.';
 comment on table public.achievements is 'Achievement catalog.';
 comment on table public.user_achievements is 'Achievement unlocks per user.';
+comment on table public.puzzles is 'Published chess puzzles with a starting FEN and authored solution line.';
+comment on table public.puzzle_solution_steps is 'Ordered solution sequence for a puzzle, including optional opponent replies.';
+comment on table public.puzzle_tags is 'Reusable puzzle tags/themes.';
+comment on table public.puzzle_attempts is 'Puzzle solve attempts and progress history per user.';
