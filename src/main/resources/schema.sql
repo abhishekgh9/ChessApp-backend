@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS game_moves (
     promotion VARCHAR(5),
     san VARCHAR(30) NOT NULL,
     fen_after VARCHAR(255) NOT NULL,
+    halfmove_clock INTEGER,
+    fullmove_number INTEGER,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 

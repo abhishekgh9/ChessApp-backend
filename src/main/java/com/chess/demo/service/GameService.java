@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +35,7 @@ public class GameService {
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
     private final ChessEngineService chessEngineService;
+    private final ChessGameStateService chessGameStateService;
     private final PostGameAnalysisService postGameAnalysisService;
 
     public GameService(GameRepository gameRepository,
@@ -41,6 +44,7 @@ public class GameService {
                        ObjectMapper objectMapper,
                        SimpMessagingTemplate messagingTemplate,
                        ChessEngineService chessEngineService,
+                       ChessGameStateService chessGameStateService,
                        PostGameAnalysisService postGameAnalysisService) {
         this.gameRepository = gameRepository;
         this.gameMoveRepository = gameMoveRepository;
@@ -48,6 +52,7 @@ public class GameService {
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
         this.chessEngineService = chessEngineService;
+        this.chessGameStateService = chessGameStateService;
         this.postGameAnalysisService = postGameAnalysisService;
     }
 
@@ -102,22 +107,12 @@ public class GameService {
         String from = normalizeSquare(request.from());
         String to = normalizeSquare(request.to());
         String promotion = normalizePromotion(request.promotion());
-        String fenAfter = buildPlaceholderFen(game, from, to, promotion);
-        if (Boolean.TRUE.equals(game.getBotGame())) {
-            ChessEngineService.PositionInfo positionInfo = chessEngineService.describePosition(buildUciMoves(game));
-            String uciMove = resolveLegalUciMove(positionInfo.legalMoves(), from, to, promotion);
-            if (uciMove == null) {
-                if (isDuplicateBotMoveSubmission(game, user, toUciMove(from, to, promotion))) {
-                    return toResponse(game);
-                }
-                throw new ApiException(HttpStatus.BAD_REQUEST, "illegal_move");
-            }
-            promotion = extractPromotion(uciMove);
-            fenAfter = chessEngineService.describePosition(appendUciMove(game, uciMove)).fen();
-        }
 
-        applyMove(game, user, expectedTurn, from, to, promotion, fenAfter);
-        finalizeIfTerminal(game);
+        List<GameMove> existingMoves = gameMoveRepository.findByGameOrderByMoveNumberAsc(game);
+        ChessGameStateService.AppliedMove appliedMove = chessGameStateService.applyMove(existingMoves, from, to, promotion);
+
+        applyMove(game, user, expectedTurn, from, to, appliedMove, existingMoves.size() + 1);
+        finalizeIfTerminal(game, appliedMove);
         if (Boolean.TRUE.equals(game.getBotGame())) {
             runBotTurnIfNeeded(game, user);
         }
@@ -270,29 +265,27 @@ public class GameService {
         return value;
     }
 
-    private String buildSan(String from, String to, String promotion) {
-        return promotion == null || promotion.isBlank() ? from + "-" + to : from + "-" + to + "=" + promotion;
-    }
-
     private void applyMove(Game game,
                            User actor,
                            String expectedTurn,
                            String from,
                            String to,
-                           String promotion,
-                           String fenAfter) {
-        String san = buildSan(from, to, promotion);
+                           ChessGameStateService.AppliedMove appliedMove,
+                           int moveNumber) {
+        String san = appliedMove.san();
 
         GameMove move = new GameMove();
         move.setGame(game);
         move.setPlayer(actor);
-        move.setMoveNumber((int) (gameMoveRepository.countByGame(game) + 1));
+        move.setMoveNumber(moveNumber);
         move.setMoveColor(expectedTurn);
         move.setFromSquare(from);
         move.setToSquare(to);
-        move.setPromotion(promotion);
+        move.setPromotion(extractPromotion(appliedMove.uci()));
         move.setSan(san);
-        move.setFenAfter(fenAfter);
+        move.setFenAfter(appliedMove.fen());
+        move.setHalfmoveClock(appliedMove.halfmoveClock());
+        move.setFullmoveNumber(appliedMove.fullmoveNumber());
         gameMoveRepository.save(move);
 
         // Decrement time for the player who just moved
@@ -301,13 +294,13 @@ public class GameService {
         List<String> history = readHistory(game);
         history.add(san);
         game.setHistoryJson(writeHistory(history));
-        game.setPgn(String.join(" ", history));
-        game.setFen(fenAfter);
+        game.setPgn(buildCanonicalPgn(game, appliedMove.moveText()));
+        game.setFen(appliedMove.fen());
         game.setLastMoveFrom(from);
         game.setLastMoveTo(to);
         game.setLastMoveSan(san);
         game.setDrawOfferedBy(null);
-        game.setTurnColor("white".equals(expectedTurn) ? "black" : "white");
+        game.setTurnColor(appliedMove.turnColor());
     }
 
     private void decrementTimeForMove(Game game, String moveColor) {
@@ -376,37 +369,60 @@ public class GameService {
         List<String> moves = buildUciMoves(game);
         String bestMove = chessEngineService.findBestMove(moves, game.getBotLevel() == null ? 1 : game.getBotLevel());
         if (bestMove == null || bestMove.length() < 4) {
-            finalizeIfTerminal(game);
+            ChessGameStateService.PositionSnapshot snapshot = chessGameStateService.snapshot(
+                    gameMoveRepository.findByGameOrderByMoveNumberAsc(game)
+            );
+            finalizeIfTerminal(game, snapshot);
             return;
         }
 
         String from = bestMove.substring(0, 2);
         String to = bestMove.substring(2, 4);
         String promotion = bestMove.length() > 4 ? bestMove.substring(4) : null;
-        String fenAfter = chessEngineService.describePosition(appendUciMove(game, bestMove)).fen();
-        applyMove(game, user, expectedTurn, from, to, promotion, fenAfter);
-        finalizeIfTerminal(game);
+
+        List<GameMove> existingMoves = gameMoveRepository.findByGameOrderByMoveNumberAsc(game);
+        ChessGameStateService.AppliedMove appliedMove = chessGameStateService.applyMove(existingMoves, from, to, promotion);
+        applyMove(game, user, expectedTurn, from, to, appliedMove, existingMoves.size() + 1);
+        finalizeIfTerminal(game, appliedMove);
     }
 
-    private void finalizeIfTerminal(Game game) {
+    private void finalizeIfTerminal(Game game, ChessGameStateService.AppliedMove position) {
+        finalizeIfTerminal(game, new ChessGameStateService.PositionSnapshot(
+                position.fen(),
+                position.turnColor(),
+                position.halfmoveClock(),
+                position.fullmoveNumber(),
+                position.checkmate(),
+                position.stalemate(),
+                position.draw(),
+                position.drawReason()
+        ));
+    }
+
+    private void finalizeIfTerminal(Game game, ChessGameStateService.PositionSnapshot position) {
         if (!"ACTIVE".equals(game.getStatus())) {
             return;
         }
 
-        ChessEngineService.PositionInfo positionInfo = chessEngineService.describePosition(buildUciMoves(game));
-        if (positionInfo.legalMoves() != null && !positionInfo.legalMoves().isEmpty()) {
+        if (!position.checkmate() && !position.stalemate() && !position.draw()) {
             return;
         }
 
         game.setStatus("FINISHED");
         game.setEndedAt(Instant.now());
         game.setDrawOfferedBy(null);
-        if (positionInfo.inCheck()) {
+        if (position.checkmate()) {
             game.setResult("white".equals(game.getTurnColor()) ? "BLACK_WIN" : "WHITE_WIN");
             game.setResultReason("CHECKMATE");
+            return;
+        }
+
+        game.setResult("DRAW");
+        if (position.stalemate()) {
+            game.setResultReason("STALEMATE");
         } else {
             game.setResult("DRAW");
-            game.setResultReason("STALEMATE");
+            game.setResultReason(position.drawReason() == null ? "DRAW" : position.drawReason());
         }
     }
 
@@ -418,53 +434,8 @@ public class GameService {
         return moves;
     }
 
-    private boolean isDuplicateBotMoveSubmission(Game game, User user, String uciMove) {
-        if (!Boolean.TRUE.equals(game.getBotGame())) {
-            return false;
-        }
-
-        List<GameMove> moves = gameMoveRepository.findByGameOrderByMoveNumberAsc(game);
-        if (moves.size() < 2) {
-            return false;
-        }
-
-        GameMove botReply = moves.get(moves.size() - 1);
-        GameMove priorHumanMove = moves.get(moves.size() - 2);
-        if (priorHumanMove.getPlayer() == null || !priorHumanMove.getPlayer().getId().equals(user.getId())) {
-            return false;
-        }
-
-        if (priorHumanMove.getMoveColor() == null
-                || botReply.getMoveColor() == null
-                || !priorHumanMove.getMoveColor().equals(game.getTurnColor())
-                || priorHumanMove.getMoveColor().equals(botReply.getMoveColor())) {
-            return false;
-        }
-
-        return toUciMove(priorHumanMove.getFromSquare(), priorHumanMove.getToSquare(), priorHumanMove.getPromotion())
-                .equals(uciMove);
-    }
-
-    private String resolveLegalUciMove(java.util.Set<String> legalMoves, String from, String to, String promotion) {
-        String baseMove = from + to;
-        String promotedMove = toUciMove(from, to, promotion);
-        if (promotion != null && legalMoves.contains(promotedMove)) {
-            return promotedMove;
-        }
-        if (legalMoves.contains(baseMove)) {
-            return baseMove;
-        }
-        return null;
-    }
-
     private String extractPromotion(String uciMove) {
         return uciMove.length() > 4 ? uciMove.substring(4) : null;
-    }
-
-    private List<String> appendUciMove(Game game, String uciMove) {
-        List<String> moves = buildUciMoves(game);
-        moves.add(uciMove);
-        return moves;
     }
 
     private String toUciMove(String from, String to, String promotion) {
@@ -472,9 +443,47 @@ public class GameService {
         return from + to + suffix;
     }
 
-    private String buildPlaceholderFen(Game game, String from, String to, String promotion) {
-        String suffix = promotion == null || promotion.isBlank() ? "" : ":" + promotion;
-        return "move:" + (game.getMoves().size() + 1) + ":" + from + ":" + to + suffix;
+    private String buildCanonicalPgn(Game game, String movesWithNumbers) {
+        String result = pgnResult(game.getResult());
+        String date = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+                .withZone(ZoneOffset.UTC)
+                .format(game.getCreatedAt() == null ? Instant.now() : game.getCreatedAt());
+
+        String white = playerName(game.getWhitePlayer(), "White");
+        String black = playerName(game.getBlackPlayer(), Boolean.TRUE.equals(game.getBotGame()) ? "Bot" : "Black");
+
+        StringBuilder pgn = new StringBuilder();
+        pgn.append("[Event \"ChessMaster Pro Game\"]\n");
+        pgn.append("[Site \"ChessMaster Pro\"]\n");
+        pgn.append("[Date \"").append(date).append("\"]\n");
+        pgn.append("[Round \"-\"]\n");
+        pgn.append("[White \"").append(white).append("\"]\n");
+        pgn.append("[Black \"").append(black).append("\"]\n");
+        pgn.append("[Result \"").append(result).append("\"]\n\n");
+        if (movesWithNumbers != null && !movesWithNumbers.isBlank()) {
+            pgn.append(movesWithNumbers).append(" ");
+        }
+        pgn.append(result);
+        return pgn.toString();
+    }
+
+    private String playerName(User player, String fallback) {
+        if (player == null || player.getUsername() == null || player.getUsername().isBlank()) {
+            return fallback;
+        }
+        return player.getUsername().replace("\"", "");
+    }
+
+    private String pgnResult(String result) {
+        if (result == null || result.isBlank()) {
+            return "*";
+        }
+        return switch (result) {
+            case "WHITE_WIN" -> "1-0";
+            case "BLACK_WIN" -> "0-1";
+            case "DRAW" -> "1/2-1/2";
+            default -> "*";
+        };
     }
 
     private List<String> readHistory(Game game) {
@@ -510,6 +519,9 @@ public class GameService {
         int startingTime = parseStartingSeconds(requestedTimeControl);
         game.setWhiteTimeRemaining(startingTime);
         game.setBlackTimeRemaining(startingTime);
+        game.setFen(Game.STARTING_FEN);
+        game.setHistoryJson("[]");
+        game.setPgn(buildCanonicalPgn(game, ""));
         game.setRated(rated);
     }
 }

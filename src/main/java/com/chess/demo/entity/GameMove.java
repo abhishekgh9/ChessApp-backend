@@ -55,6 +55,12 @@ public class GameMove {
     @Column(name = "fen_after", nullable = false, length = 255)
     private String fenAfter;
 
+    @Column(name = "halfmove_clock")
+    private Integer halfmoveClock;
+
+    @Column(name = "fullmove_number")
+    private Integer fullmoveNumber;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

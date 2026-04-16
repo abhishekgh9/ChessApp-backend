@@ -30,7 +30,7 @@ import java.util.UUID;
 @Setter
 public class Game {
 
-    public static final String STARTING_FEN = "rn1qkbnr/pppbpppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1";
+    public static final String STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -54,7 +54,7 @@ public class Game {
     private String resultReason;
 
     @Column(name = "fen", nullable = false, length = 255)
-    private String fen = "startpos";
+    private String fen = STARTING_FEN;
 
     @Column(name = "pgn", nullable = false, columnDefinition = "TEXT")
     private String pgn = "";
@@ -120,7 +120,7 @@ public class Game {
     @PrePersist
     void applyDefaults() {
         if (fen == null || fen.isBlank()) {
-            fen = "startpos";
+            fen = STARTING_FEN;
         }
         if (pgn == null) {
             pgn = "";
